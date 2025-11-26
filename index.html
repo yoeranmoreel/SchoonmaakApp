@@ -1,0 +1,293 @@
+import React, { useState, useEffect } from 'react';
+import { Check, Plus, X, RotateCcw, Bell } from 'lucide-react';
+
+const CleaningApp = () => {
+  const [tasks, setTasks] = useState([]);
+  const [showAddTask, setShowAddTask] = useState(false);
+  const [newTask, setNewTask] = useState({ name: '', frequency: 'weekly' });
+  const [filter, setFilter] = useState('all');
+
+  const frequencies = {
+    weekly: 'Wekelijks',
+    monthly: 'Maandelijks',
+    halfyearly: 'Halfjaarlijks',
+    yearly: 'Jaarlijks'
+  };
+
+  // Load tasks from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem('cleaning-tasks');
+    if (stored) {
+      try {
+        setTasks(JSON.parse(stored));
+      } catch (error) {
+        console.error('Fout bij laden:', error);
+      }
+    }
+    checkNotifications();
+  }, []);
+
+  // Save tasks to localStorage whenever they change
+  useEffect(() => {
+    if (tasks.length > 0 || localStorage.getItem('cleaning-tasks')) {
+      localStorage.setItem('cleaning-tasks', JSON.stringify(tasks));
+    }
+  }, [tasks]);
+
+  const checkNotifications = () => {
+    if ('Notification' in window && Notification.permission === 'default') {
+      Notification.requestPermission();
+    }
+  };
+
+  const sendNotification = (taskName) => {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      new Notification('Schoonmaak Herinnering', {
+        body: `Tijd om "${taskName}" te doen!`,
+        icon: '🧹'
+      });
+    }
+  };
+
+  const addTask = () => {
+    if (!newTask.name.trim()) return;
+
+    const task = {
+      id: Date.now(),
+      name: newTask.name,
+      frequency: newTask.frequency,
+      completed: false,
+      lastCompleted: null,
+      nextDue: calculateNextDue(new Date(), newTask.frequency)
+    };
+
+    setTasks([...tasks, task]);
+    setNewTask({ name: '', frequency: 'weekly' });
+    setShowAddTask(false);
+  };
+
+  const calculateNextDue = (fromDate, frequency) => {
+    const date = new Date(fromDate);
+    switch (frequency) {
+      case 'weekly':
+        date.setDate(date.getDate() + 7);
+        break;
+      case 'monthly':
+        date.setMonth(date.getMonth() + 1);
+        break;
+      case 'halfyearly':
+        date.setMonth(date.getMonth() + 6);
+        break;
+      case 'yearly':
+        date.setFullYear(date.getFullYear() + 1);
+        break;
+    }
+    return date.toISOString();
+  };
+
+  const toggleTask = (taskId) => {
+    const updatedTasks = tasks.map(task => {
+      if (task.id === taskId) {
+        const now = new Date();
+        const isCompleting = !task.completed;
+        
+        if (isCompleting && (task.frequency === 'halfyearly' || task.frequency === 'yearly')) {
+          sendNotification(task.name);
+        }
+
+        return {
+          ...task,
+          completed: isCompleting,
+          lastCompleted: isCompleting ? now.toISOString() : task.lastCompleted,
+          nextDue: isCompleting ? calculateNextDue(now, task.frequency) : task.nextDue
+        };
+      }
+      return task;
+    });
+    setTasks(updatedTasks);
+  };
+
+  const deleteTask = (taskId) => {
+    setTasks(tasks.filter(task => task.id !== taskId));
+  };
+
+  const resetAllTasks = () => {
+    if (window.confirm('Weet je zeker dat je alle taken wilt resetten?')) {
+      const resetTasks = tasks.map(task => ({
+        ...task,
+        completed: false,
+        lastCompleted: null,
+        nextDue: calculateNextDue(new Date(), task.frequency)
+      }));
+      setTasks(resetTasks);
+    }
+  };
+
+  const filteredTasks = tasks.filter(task => {
+    if (filter === 'all') return true;
+    return task.frequency === filter;
+  });
+
+  const isOverdue = (task) => {
+    if (!task.nextDue) return false;
+    return new Date(task.nextDue) < new Date() && !task.completed;
+  };
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 pb-20">
+      <div className="max-w-2xl mx-auto">
+        {/* Header */}
+        <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+          <div className="flex justify-between items-center mb-4">
+            <h1 className="text-3xl font-bold text-gray-800">🧹 Schoonmaak Taken</h1>
+            <button
+              onClick={resetAllTasks}
+              className="p-2 text-gray-600 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+              title="Reset alle taken"
+            >
+              <RotateCcw size={24} />
+            </button>
+          </div>
+
+          {/* Filter buttons */}
+          <div className="flex flex-wrap gap-2 mb-4">
+            <button
+              onClick={() => setFilter('all')}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                filter === 'all'
+                  ? 'bg-indigo-600 text-white'
+                  : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+              }`}
+            >
+              Alle ({tasks.length})
+            </button>
+            {Object.entries(frequencies).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setFilter(key)}
+                className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                  filter === key
+                    ? 'bg-indigo-600 text-white'
+                    : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                }`}
+              >
+                {label} ({tasks.filter(t => t.frequency === key).length})
+              </button>
+            ))}
+          </div>
+
+          {/* Add task button */}
+          <button
+            onClick={() => setShowAddTask(!showAddTask)}
+            className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-medium py-3 rounded-lg flex items-center justify-center gap-2 transition-colors"
+          >
+            <Plus size={20} />
+            Nieuwe Taak
+          </button>
+        </div>
+
+        {/* Add task form */}
+        {showAddTask && (
+          <div className="bg-white rounded-2xl shadow-lg p-6 mb-6">
+            <h2 className="text-xl font-bold text-gray-800 mb-4">Taak Toevoegen</h2>
+            <input
+              type="text"
+              placeholder="Naam van de taak..."
+              value={newTask.name}
+              onChange={(e) => setNewTask({ ...newTask, name: e.target.value })}
+              onKeyPress={(e) => e.key === 'Enter' && addTask()}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg mb-3 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            />
+            <select
+              value={newTask.frequency}
+              onChange={(e) => setNewTask({ ...newTask, frequency: e.target.value })}
+              className="w-full px-4 py-3 border border-gray-300 rounded-lg mb-4 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+            >
+              {Object.entries(frequencies).map(([key, label]) => (
+                <option key={key} value={key}>{label}</option>
+              ))}
+            </select>
+            <div className="flex gap-3">
+              <button
+                onClick={addTask}
+                className="flex-1 bg-green-600 hover:bg-green-700 text-white font-medium py-3 rounded-lg transition-colors"
+              >
+                Toevoegen
+              </button>
+              <button
+                onClick={() => setShowAddTask(false)}
+                className="flex-1 bg-gray-300 hover:bg-gray-400 text-gray-800 font-medium py-3 rounded-lg transition-colors"
+              >
+                Annuleren
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Tasks list */}
+        <div className="space-y-3">
+          {filteredTasks.length === 0 ? (
+            <div className="bg-white rounded-2xl shadow-lg p-8 text-center text-gray-500">
+              Geen taken gevonden. Voeg je eerste taak toe!
+            </div>
+          ) : (
+            filteredTasks.map(task => (
+              <div
+                key={task.id}
+                className={`bg-white rounded-xl shadow-md p-4 transition-all ${
+                  task.completed ? 'opacity-60' : ''
+                } ${isOverdue(task) ? 'border-l-4 border-red-500' : ''}`}
+              >
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={() => toggleTask(task.id)}
+                    className={`flex-shrink-0 w-8 h-8 rounded-lg border-2 flex items-center justify-center transition-colors ${
+                      task.completed
+                        ? 'bg-green-500 border-green-500 text-white'
+                        : 'border-gray-300 hover:border-indigo-500'
+                    }`}
+                  >
+                    {task.completed && <Check size={20} />}
+                  </button>
+                  
+                  <div className="flex-1">
+                    <h3 className={`font-semibold text-gray-800 ${
+                      task.completed ? 'line-through' : ''
+                    }`}>
+                      {task.name}
+                    </h3>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-sm text-gray-500">
+                        {frequencies[task.frequency]}
+                      </span>
+                      {(task.frequency === 'halfyearly' || task.frequency === 'yearly') && (
+                        <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-1 rounded flex items-center gap-1">
+                          <Bell size={12} />
+                          Notificatie
+                        </span>
+                      )}
+                      {isOverdue(task) && (
+                        <span className="text-xs bg-red-100 text-red-800 px-2 py-1 rounded">
+                          Verlopen
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <button
+                    onClick={() => deleteTask(task.id)}
+                    className="flex-shrink-0 p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                  >
+                    <X size={20} />
+                  </button>
+                </div>
+              </div>
+            ))
+          )}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default CleaningApp;
